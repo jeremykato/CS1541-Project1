@@ -93,7 +93,7 @@ int main(int argc, char **argv)
       }
       else{         
         memcpy(&PREFETCH[0], tr_entry , sizeof(struct instruction));
-        memcpy(&PREFETCH[1], tr_entry , sizeof(struct instruction));
+        memcpy(&PREFETCH[1], tr_entry2 , sizeof(struct instruction));
       }
 
       //printf("==============================================================================\n");

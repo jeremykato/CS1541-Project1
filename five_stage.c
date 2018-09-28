@@ -36,7 +36,7 @@ int main(int argc, char **argv)
   
   unsigned int cycle_number = -2;  //start at -2 to ignore filling the PREFETCH QUEUE
 
-  memset(ht, 0, HASH_TABLE_SIZE * sizeof(struct prediction));
+  memset(ht, 0, HASH_TABLE_SIZE);
 
   if (argc == 1) {
     fprintf(stdout, "\nUSAGE: tv <trace_file> <switch - any character> <prediction method>\n");

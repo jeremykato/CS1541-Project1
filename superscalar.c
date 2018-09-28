@@ -12,31 +12,30 @@
 #include <string.h>
 #include "CPU.h" 
 
-unsigned char get_prediction(struct instruction *instr);
-void update_prediction(struct instruction *instr, unsigned char new_prediction);
 unsigned int check_data_hazard(struct instruction *first_instr, struct instruction *x);
 unsigned int check_control_hazard(struct instruction *first_instr, struct instruction *x);
 void insert_noop(struct instruction *loc);
 void insert_squashed(struct instruction *loc);
 unsigned int is_branch_taken(struct instruction *branch_instr, struct instruction *next_instr);
 
-char ht[HASH_TABLE_SIZE];
+struct instruction PACKING[2];
 struct instruction PREFETCH[2];
 
 int main(int argc, char **argv)
 {
   struct instruction *tr_entry;
-  struct instruction IF, ID, EX, MEM, WB;
+  struct instruction *tr_entry2;
+  struct instruction IF_A, ID_A, EX_A, MEM_A, WB_A; //the ALU/branch/jump/special pipe
+  struct instruction IF_B, ID_B, EX_B, MEM_B, WB_B; //the load/store pipe
   size_t size;
   char *trace_file_name;
   int trace_view_on = 0;
   int prediction_method = 0;
+  int instructions_packed = 0;  //to track whether to advance pipe 0, 1 or 2 instructions each cycle
   int squash_counter = 0;
   int flush_counter = 6; //5 stage pipeline and 2-part buffer, so we have to move 6 instructions once trace is done
   
   int cycle_number = -2;  //start at -2 to ignore filling the PREFETCH QUEUE
-
-  memset(ht, 0, HASH_TABLE_SIZE);
 
   if (argc == 1) {
     fprintf(stdout, "\nUSAGE: tv <trace_file> <prediction method> <switch - any character> \n");
@@ -62,21 +61,8 @@ int main(int argc, char **argv)
 
   while(1) {
 
-    int has_data_hazard = check_data_hazard(&PREFETCH[0], &PREFETCH[1]);
-
-    if(prediction_method == 0 && check_control_hazard(&PREFETCH[0], &PREFETCH[1]))
-      squash_counter += 2;
-
-    if(prediction_method == 1 && PREFETCH[0].type == ti_BRANCH)
-    {
-      int branch_result = is_branch_taken(&PREFETCH[0], &PREFETCH[1]);
-      if (get_prediction(&PREFETCH[0]) != branch_result)
-        squash_counter++;
-      update_prediction(&PREFETCH[0], branch_result);
-    }
-
-    if(!has_data_hazard && !squash_counter)
-      size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
+    size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
+    size = trace_get_item(&tr_entry2); /* put the instruction into a buffer */
    
     if (!size && flush_counter==0) {       /* no more instructions (instructions) to simulate */
       printf("+ Simulation terminates at cycle : %u\n", cycle_number);
@@ -86,70 +72,109 @@ int main(int argc, char **argv)
       cycle_number++;
 
       /* move instructions one stage ahead */
-      WB = MEM;
-      MEM = EX;
-      EX = ID;
-      ID = IF;
-      IF = PREFETCH[0];
+      WB_A = MEM_A;
+      WB_B = MEM_B;
+      MEM_A = EX_A;
+      MEM_B = EX_B;
+      EX_A = ID_A;
+      EX_B = ID_B;
+      ID_A = IF_A;
+      ID_B = IF_B;
+      IF_A = PACKING[0];
+      IF_B = PACKING[1];
 
-      if(squash_counter)
-        insert_squashed(&PREFETCH[0]);
-      else if(has_data_hazard) 
-        insert_noop(&PREFETCH[0]);
-      else
-        PREFETCH[0] = PREFETCH[1];
+      PACKING[0] = PREFETCH[0];
+      PACKING[1] = PREFETCH[1];
 
       if(!size){    /* if no more instructions in trace, feed NOOPS and reduce flush_counter */
+        insert_noop(&PREFETCH[0]);
         insert_noop(&PREFETCH[1]);
         flush_counter--;   
       }
-      else{   
-        if(!has_data_hazard && !squash_counter)
-          memcpy(&PREFETCH[1], tr_entry , sizeof(IF));
+      else{         
+        memcpy(&PREFETCH[0], tr_entry , sizeof(struct instruction));
+        memcpy(&PREFETCH[1], tr_entry , sizeof(struct instruction));
       }
-
-      if(squash_counter)
-        squash_counter--;
 
       //printf("==============================================================================\n");
     }  
 
 
     if (trace_view_on && cycle_number>=5) {/* print the executed instruction if trace_view_on=1 */
-      switch(WB.type) {
+      switch(WB_A.type) {
         case ti_NOP:
           printf("[cycle %d] NOP:\n",cycle_number) ;
           break;
         case ti_RTYPE: /* registers are translated for printing by subtracting offset  */
           printf("[cycle %d] RTYPE:",cycle_number) ;
-          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(dReg: %d) \n", WB.PC, WB.sReg_a, WB.sReg_b, WB.dReg);
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(dReg: %d) \n", WB_A.PC, WB_A.sReg_a, WB_A.sReg_b, WB_A.dReg);
           break;
         case ti_ITYPE:
           printf("[cycle %d] ITYPE:",cycle_number) ;
-          printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", WB.PC, WB.sReg_a, WB.dReg, WB.Addr);
+          printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", WB_A.PC, WB_A.sReg_a, WB_A.dReg, WB_A.Addr);
           break;
         case ti_LOAD:
           printf("[cycle %d] LOAD:",cycle_number) ;      
-          printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", WB.PC, WB.sReg_a, WB.dReg, WB.Addr);
+          printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", WB_A.PC, WB_A.sReg_a, WB_A.dReg, WB_A.Addr);
           break;
         case ti_STORE:
           printf("[cycle %d] STORE:",cycle_number) ;      
-          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", WB.PC, WB.sReg_a, WB.sReg_b, WB.Addr);
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", WB_A.PC, WB_A.sReg_a, WB_A.sReg_b, WB_A.Addr);
           break;
         case ti_BRANCH:
           printf("[cycle %d] BRANCH:",cycle_number) ;
-          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", WB.PC, WB.sReg_a, WB.sReg_b, WB.Addr);
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", WB_A.PC, WB_A.sReg_a, WB_A.sReg_b, WB_A.Addr);
           break;
         case ti_JTYPE:
           printf("[cycle %d] JTYPE:",cycle_number) ;
-          printf(" (PC: %d)(addr: %d)\n", WB.PC,WB.Addr);
+          printf(" (PC: %d)(addr: %d)\n", WB_A.PC, WB_A.Addr);
           break;
         case ti_SPECIAL:
           printf("[cycle %d] SPECIAL:\n",cycle_number) ;      	
           break;
         case ti_JRTYPE:
           printf("[cycle %d] JRTYPE:",cycle_number) ;
-          printf(" (PC: %d) (sReg_a: %d)(addr: %d)\n", WB.PC, WB.dReg, WB.Addr);
+          printf(" (PC: %d) (sReg_a: %d)(addr: %d)\n", WB_A.PC, WB_A.dReg, WB_A.Addr);
+          break;
+        case ti_SQUASHED:
+          printf("[cycle %d] SQUASHED\n",cycle_number) ;
+          break;
+      }
+
+      switch(WB_B.type) {
+        case ti_NOP:
+          printf("[cycle %d] NOP:\n",cycle_number) ;
+          break;
+        case ti_RTYPE: /* registers are translated for printing by subtracting offset  */
+          printf("[cycle %d] RTYPE:",cycle_number) ;
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(dReg: %d) \n", WB_B.PC, WB_B.sReg_a, WB_B.sReg_b, WB_B.dReg);
+          break;
+        case ti_ITYPE:
+          printf("[cycle %d] ITYPE:",cycle_number) ;
+          printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", WB_B.PC, WB_B.sReg_a, WB_B.dReg, WB_B.Addr);
+          break;
+        case ti_LOAD:
+          printf("[cycle %d] LOAD:",cycle_number) ;      
+          printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", WB_B.PC, WB_B.sReg_a, WB_B.dReg, WB_B.Addr);
+          break;
+        case ti_STORE:
+          printf("[cycle %d] STORE:",cycle_number) ;      
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", WB_B.PC, WB_B.sReg_a, WB_B.sReg_b, WB_B.Addr);
+          break;
+        case ti_BRANCH:
+          printf("[cycle %d] BRANCH:",cycle_number) ;
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", WB_B.PC, WB_B.sReg_a, WB_B.sReg_b, WB_B.Addr);
+          break;
+        case ti_JTYPE:
+          printf("[cycle %d] JTYPE:",cycle_number) ;
+          printf(" (PC: %d)(addr: %d)\n", WB_B.PC, WB_B.Addr);
+          break;
+        case ti_SPECIAL:
+          printf("[cycle %d] SPECIAL:\n",cycle_number) ;        
+          break;
+        case ti_JRTYPE:
+          printf("[cycle %d] JRTYPE:",cycle_number) ;
+          printf(" (PC: %d) (sReg_a: %d)(addr: %d)\n", WB_B.PC, WB_B.dReg, WB_B.Addr);
           break;
         case ti_SQUASHED:
           printf("[cycle %d] SQUASHED\n",cycle_number) ;
@@ -161,18 +186,6 @@ int main(int argc, char **argv)
   trace_uninit();
 
   exit(0);
-}
-
-//predicts last choice for a given branch if stored in predictor, else predicts NOT TAKEN
-unsigned char get_prediction(struct instruction *instr)
-{
-  return ht[HASH(instr->Addr)];
-}
-
-void update_prediction(struct instruction *instr, unsigned char new_prediction)
-{
-  int index = HASH(instr->Addr);
-  ht[index] = new_prediction;
 }
 
 //returns 1 if a data hazard is found, else returns 0

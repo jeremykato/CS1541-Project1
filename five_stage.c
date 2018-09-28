@@ -1,21 +1,27 @@
-/*
- * fivestage.c
- *
- *  Created on: Sep 25, 2018
- *      Author: SilverDragoon
- */
-
 /**************************************************************/
-/* CS/COE 1541
-   compile with gcc -o pipeline five_stage.c
-   and execute using
-   ./pipeline  /afs/cs.pitt.edu/courses/1541/short_traces/sample.tr	0
+/* CS/COE 1541				 			
+   compile with gcc -o pipeline five_stage.c			
+   and execute using							
+   ./pipeline  /afs/cs.pitt.edu/courses/1541/short_traces/sample.tr	0  
 ***************************************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <inttypes.h>
 #include <arpa/inet.h>
-#include "CPU.h"
+#include <string.h>
+#include "CPU.h" 
+
+unsigned char get_prediction(struct instruction *instr);
+void update_prediction(struct instruction *instr, unsigned char new_prediction);
+unsigned int check_data_hazard(struct instruction *first_instr, struct instruction *x);
+unsigned int check_control_hazard(struct instruction *first_instr, struct instruction *x);
+void insert_noop(struct instruction *loc);
+void insert_squashed(struct instruction *loc);
+unsigned int is_branch_taken(struct instruction *branch_instr, struct instruction *next_instr);
+
+char ht[HASH_TABLE_SIZE];
+struct instruction PREFETCH[2];
 
 int main(int argc, char **argv)
 {
@@ -24,18 +30,24 @@ int main(int argc, char **argv)
   size_t size;
   char *trace_file_name;
   int trace_view_on = 0;
-  int flush_counter = 4; //5 stage pipeline, so we have to move 4 instructions once trace is done
+  int prediction_method = 0;
+  int squash_counter = 0;
+  int flush_counter = 6; //5 stage pipeline and 2-part buffer, so we have to move 6 instructions once trace is done
+  
+  unsigned int cycle_number = -2;  //start at -2 to ignore filling the PREFETCH QUEUE
 
-  unsigned int cycle_number = 0;
+  memset(ht, 0, HASH_TABLE_SIZE * sizeof(struct prediction));
 
   if (argc == 1) {
-    fprintf(stdout, "\nUSAGE: tv <trace_file> <switch - any character>\n");
+    fprintf(stdout, "\nUSAGE: tv <trace_file> <switch - any character> <prediction method>\n");
     fprintf(stdout, "\n(switch) to turn on or off individual item view.\n\n");
+    fprintf(stdout, "\n(prediction method) 0 to predict NOT TAKEN, 1 to predict TAKEN.\n\n");
     exit(0);
   }
-
+    
   trace_file_name = argv[1];
-  if (argc == 3) trace_view_on = atoi(argv[2]) ;
+  if (argc > 2) trace_view_on = atoi(argv[2]);
+  if (argc > 3) prediction_method = atoi(argv[3]);
 
   fprintf(stdout, "\n ** opening file %s\n", trace_file_name);
 
@@ -49,8 +61,23 @@ int main(int argc, char **argv)
   trace_init();
 
   while(1) {
-    size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
 
+    int has_data_hazard = check_data_hazard(&PREFETCH[0], &PREFETCH[1]);
+
+    if(prediction_method == 0 && check_control_hazard(&PREFETCH[0], &PREFETCH[1]))
+      squash_counter += 2;
+
+    if(prediction_method == 1 && PREFETCH[0].type == ti_BRANCH)
+    {
+      int branch_result = is_branch_taken(&PREFETCH[0], &PREFETCH[1]);
+      if (get_prediction(&PREFETCH[0]) != branch_result)
+        squash_counter++;
+      update_prediction(&PREFETCH[0], branch_result);
+    }
+
+    if(!has_data_hazard && !squash_counter)
+      size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
+   
     if (!size && flush_counter==0) {       /* no more instructions (instructions) to simulate */
       printf("+ Simulation terminates at cycle : %u\n", cycle_number);
       break;
@@ -63,16 +90,29 @@ int main(int argc, char **argv)
       MEM = EX;
       EX = ID;
       ID = IF;
+      IF = PREFETCH[0];
 
-      if(!size){    /* if no more instructions in trace, reduce flush_counter */
-        flush_counter--;
+      if(squash_counter)
+        insert_squashed(&PREFETCH[0]);
+      else if(has_data_hazard) 
+        insert_noop(&PREFETCH[0]);
+      else
+        PREFETCH[0] = PREFETCH[1];
+
+      if(!size){    /* if no more instructions in trace, feed NOOPS and reduce flush_counter */
+        insert_noop(&PREFETCH[1]);
+        flush_counter--;   
       }
-      else{   /* copy trace entry into IF stage */
-        memcpy(&IF, tr_entry , sizeof(IF));
+      else{   
+        if(!has_data_hazard && !squash_counter)
+          memcpy(&PREFETCH[1], tr_entry , sizeof(IF));
       }
+
+      if(squash_counter)
+        squash_counter--;
 
       //printf("==============================================================================\n");
-    }
+    }  
 
 
     if (trace_view_on && cycle_number>=5) {/* print the executed instruction if trace_view_on=1 */
@@ -89,11 +129,11 @@ int main(int argc, char **argv)
           printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", WB.PC, WB.sReg_a, WB.dReg, WB.Addr);
           break;
         case ti_LOAD:
-          printf("[cycle %d] LOAD:",cycle_number) ;
+          printf("[cycle %d] LOAD:",cycle_number) ;      
           printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", WB.PC, WB.sReg_a, WB.dReg, WB.Addr);
           break;
         case ti_STORE:
-          printf("[cycle %d] STORE:",cycle_number) ;
+          printf("[cycle %d] STORE:",cycle_number) ;      
           printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", WB.PC, WB.sReg_a, WB.sReg_b, WB.Addr);
           break;
         case ti_BRANCH:
@@ -105,11 +145,14 @@ int main(int argc, char **argv)
           printf(" (PC: %d)(addr: %d)\n", WB.PC,WB.Addr);
           break;
         case ti_SPECIAL:
-          printf("[cycle %d] SPECIAL:\n",cycle_number) ;
+          printf("[cycle %d] SPECIAL:\n",cycle_number) ;      	
           break;
         case ti_JRTYPE:
           printf("[cycle %d] JRTYPE:",cycle_number) ;
           printf(" (PC: %d) (sReg_a: %d)(addr: %d)\n", WB.PC, WB.dReg, WB.Addr);
+          break;
+        case ti_SQUASHED:
+          printf("[cycle %d] SQUASHED\n",cycle_number) ;
           break;
       }
     }
@@ -120,4 +163,61 @@ int main(int argc, char **argv)
   exit(0);
 }
 
+//predicts last choice for a given branch if stored in predictor, else predicts NOT TAKEN
+unsigned char get_prediction(struct instruction *instr)
+{
+  return ht[HASH(instr->Addr)];
+}
 
+void update_prediction(struct instruction *instr, unsigned char new_prediction)
+{
+  int index = HASH(instr->Addr);
+  ht[index] = new_prediction;
+}
+
+//returns 1 if a data hazard is found, else returns 0
+//x is assumed to be the possibly dependent instruction following the LOAD
+unsigned int check_data_hazard(struct instruction *first_instr, struct instruction *x)
+{
+  if(first_instr->type != ti_LOAD)
+    return 0;
+  int hazard_register = first_instr->dReg;
+  if(x->sReg_a == hazard_register && x->type != ti_JTYPE && x->type != ti_SPECIAL && x->type != ti_SQUASHED)
+    return 1;
+  if(x->sReg_b == hazard_register && (x->type == ti_RTYPE || x->type == ti_STORE || x->type == ti_BRANCH))
+    return 1;
+
+  return 0;
+}
+
+//returns 1 if a control hazard is found, else returns 0
+//x is the instruction following the possible BRANCH
+unsigned int check_control_hazard(struct instruction *first_instr, struct instruction *next_instr)
+{
+  if(first_instr->type != ti_BRANCH)
+    return 0;
+  return is_branch_taken(first_instr, next_instr);
+}
+
+//puts a NO_OP in the desired location
+void insert_noop(struct instruction *loc)
+{
+  struct instruction NO_OP;
+  memset(&NO_OP, 0, sizeof(struct instruction));
+  *loc = NO_OP;
+}
+
+//puts a NO_OP in the desired location
+void insert_squashed(struct instruction *loc)
+{
+  struct instruction SQUASHED_OP;
+  memset(&SQUASHED_OP, 0, sizeof(struct instruction));
+  SQUASHED_OP.type = ti_SQUASHED;
+  *loc = SQUASHED_OP;
+}
+
+//returns 0 if not taken and 1 if taken
+unsigned int is_branch_taken(struct instruction *branch_instr, struct instruction *next_instr)
+{
+  return (branch_instr->PC != next_instr->PC - 4);
+}

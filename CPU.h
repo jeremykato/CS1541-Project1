@@ -1,9 +1,3 @@
-/*
- * CPU.h
- *
- *  Created on: Sep 25, 2018
- *      Author: SilverDragoon
- */
 
 #ifndef TRACE_ITEM_H
 #define TRACE_ITEM_H
@@ -18,7 +12,8 @@ enum opcode {
 	ti_BRANCH,
 	ti_JTYPE,
 	ti_SPECIAL,
-	ti_JRTYPE
+	ti_JRTYPE,
+	ti_SQUASHED
 };
 
 struct instruction {
@@ -30,9 +25,19 @@ struct instruction {
 	unsigned int Addr;			// mem. address
 };
 
+struct prediction {
+	unsigned char taken;
+	unsigned int address;
+};
+
+#define HASH(address) (((address) >> 4) & (0x3F))
+
 #endif
 
 #define TRACE_BUFSIZE 1024*1024
+#define HASH_TABLE_SIZE 64
+#define NOT_TAKEN 0
+#define TAKEN 1
 
 static FILE *trace_fd;
 static int trace_buf_ptr;
@@ -111,7 +116,7 @@ int write_trace(struct instruction item, char *fname)
 	fclose(out_fd);
 	if (!n_items) return 0;				/* if no more items in the file, we are done */
 
-
+		
 	return 1;
 }
 

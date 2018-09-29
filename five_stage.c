@@ -19,8 +19,9 @@ unsigned int check_control_hazard(struct instruction *first_instr, struct instru
 void insert_noop(struct instruction *loc);
 void insert_squashed(struct instruction *loc);
 unsigned int is_branch_taken(struct instruction *branch_instr, struct instruction *next_instr);
+unsigned char is_right_target(struct instruction *instr);
 
-char ht[HASH_TABLE_SIZE];
+struct prediction ht[HASH_TABLE_SIZE];
 struct instruction PREFETCH[2];
 
 int main(int argc, char **argv)
@@ -36,7 +37,7 @@ int main(int argc, char **argv)
   
   int cycle_number = -2;  //start at -2 to ignore filling the PREFETCH QUEUE
 
-  memset(ht, 0, HASH_TABLE_SIZE);
+  memset(ht, 0, HASH_TABLE_SIZE * sizeof(struct prediction));
 
   if (argc == 1) {
     fprintf(stdout, "\nUSAGE: tv <trace_file> <prediction method> <switch - any character> \n");
@@ -65,14 +66,20 @@ int main(int argc, char **argv)
     int has_data_hazard = check_data_hazard(&PREFETCH[0], &PREFETCH[1]);
 
     if(prediction_method == 0 && check_control_hazard(&PREFETCH[0], &PREFETCH[1]))
-      squash_counter += 2;
+      squash_counter++;
 
     if(prediction_method == 1 && PREFETCH[0].type == ti_BRANCH)
     {
       int branch_result = is_branch_taken(&PREFETCH[0], &PREFETCH[1]);
-      if (get_prediction(&PREFETCH[0]) != branch_result)
+      if (get_prediction(&PREFETCH[0]) != branch_result || !is_right_target(&PREFETCH[0]))
         squash_counter++;
       update_prediction(&PREFETCH[0], branch_result);
+    }
+    else if (prediction_method == 1 && (PREFETCH[0].type == ti_JRTYPE || PREFETCH[0].type == ti_JTYPE))
+    {
+      if(!is_right_target(&PREFETCH[0]))
+        squash_counter++;
+      update_prediction(&PREFETCH[0], TAKEN);
     }
 
     if(!has_data_hazard && !squash_counter)
@@ -166,13 +173,25 @@ int main(int argc, char **argv)
 //predicts last choice for a given branch if stored in predictor, else predicts NOT TAKEN
 unsigned char get_prediction(struct instruction *instr)
 {
-  return ht[HASH(instr->Addr)];
+  struct prediction p = ht[HASH(instr->PC)];
+  return p.taken;
+}
+
+//checks a jump or branch target address versus the target in the hash table
+//returns 1 if they match, otherwise returns 0
+unsigned char is_right_target(struct instruction *instr)
+{
+  struct prediction p = ht[HASH(instr->PC)];
+  return instr->Addr == p.target;
 }
 
 void update_prediction(struct instruction *instr, unsigned char new_prediction)
 {
-  int index = HASH(instr->Addr);
-  ht[index] = new_prediction;
+  int index = HASH(instr->PC);
+  struct prediction p;
+  p.taken = new_prediction;
+  p.target =  instr->Addr;
+  ht[index] = p;
 }
 
 //returns 1 if a data hazard is found, else returns 0
@@ -194,9 +213,11 @@ unsigned int check_data_hazard(struct instruction *first_instr, struct instructi
 //x is the instruction following the possible BRANCH
 unsigned int check_control_hazard(struct instruction *first_instr, struct instruction *next_instr)
 {
-  if(first_instr->type != ti_BRANCH)
-    return 0;
-  return is_branch_taken(first_instr, next_instr);
+  if(first_instr->type == ti_JTYPE || first_instr->type == ti_JRTYPE)
+    return 1;
+  if(first_instr->type == ti_BRANCH)
+    return is_branch_taken(first_instr, next_instr);
+  return 0;
 }
 
 //puts a NO_OP in the desired location
@@ -219,5 +240,8 @@ void insert_squashed(struct instruction *loc)
 //returns 0 if not taken and 1 if taken
 unsigned int is_branch_taken(struct instruction *branch_instr, struct instruction *next_instr)
 {
-  return (branch_instr->PC != next_instr->PC - 4);
+  if (branch_instr->PC != next_instr->PC - 4)
+    return 1;
+
+  return 0;
 }

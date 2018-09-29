@@ -27,7 +27,7 @@ struct instruction {
 
 struct prediction {
 	unsigned char taken;
-	unsigned int address;
+	unsigned int target;
 };
 
 #define HASH(address) (((address) >> 4) & (0x3F))

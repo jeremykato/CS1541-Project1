@@ -27,11 +27,11 @@ int main(int argc, char **argv)
   struct instruction *tr_entry2;
   struct instruction IF_A, ID_A, EX_A, MEM_A, WB_A; //the ALU/branch/jump/special pipe
   struct instruction IF_B, ID_B, EX_B, MEM_B, WB_B; //the load/store pipe
-  size_t size;
+  size_t size = 1;
   char *trace_file_name;
   int trace_view_on = 0;
   int prediction_method = 0;
-  int instructions_packed = 0;  //to track whether to advance pipe 0, 1 or 2 instructions each cycle
+  int instructions_packed = 2;  //to track whether to advance pipe 0, 1 or 2 instructions each cycle
   int squash_counter = 0;
   int flush_counter = 6; //5 stage pipeline and 2-part buffer, so we have to move 6 instructions once trace is done
   
@@ -60,9 +60,17 @@ int main(int argc, char **argv)
   trace_init();
 
   while(1) {
+    
+    if(!size)
+      ;
+    else if(instructions_packed > 0)
+      size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
+    if(!size)
+      ;
+    else if(instructions_packed > 1)
+      size = trace_get_item(&tr_entry2); /* put the instruction into a buffer */
 
-    size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
-    size = trace_get_item(&tr_entry2); /* put the instruction into a buffer */
+    instructions_packed = 0;
    
     if (!size && flush_counter==0) {       /* no more instructions (instructions) to simulate */
       printf("+ Simulation terminates at cycle : %u\n", cycle_number);
@@ -83,17 +91,60 @@ int main(int argc, char **argv)
       IF_A = PACKING[0];
       IF_B = PACKING[1];
 
-      PACKING[0] = PREFETCH[0];
-      PACKING[1] = PREFETCH[1];
+      if(PREFETCH[0].type == ti_LOAD || PREFETCH[0].type == ti_STORE)
+      {
+        PACKING[1] = PREFETCH[0];
+        instructions_packed++;
+        if(PREFETCH[1].type == ti_LOAD || PREFETCH[1].type == ti_STORE)
+        {
+          insert_noop(&PACKING[0]);
+        }
+        else
+        {
+          PACKING[0] = PREFETCH[1];
+          instructions_packed++;
+        }
+      }
+      else 
+      {
+        PACKING[0] = PREFETCH[0];
+        instructions_packed++;
+
+        if(PREFETCH[0].type == ti_BRANCH || PREFETCH[0].type == ti_JTYPE || PREFETCH[0].type == ti_JRTYPE)
+        {
+          insert_noop(&PACKING[1]);
+        }
+        else
+        {
+          if(PREFETCH[1].type == ti_LOAD || PREFETCH[1].type == ti_STORE)
+          {
+            PACKING[1] = PREFETCH[1];
+            instructions_packed++;
+          }
+          else
+          {
+            insert_noop(&PACKING[1]);
+          }
+        }
+        
+      }
 
       if(!size){    /* if no more instructions in trace, feed NOOPS and reduce flush_counter */
         insert_noop(&PREFETCH[0]);
         insert_noop(&PREFETCH[1]);
         flush_counter--;   
       }
-      else{         
-        memcpy(&PREFETCH[0], tr_entry , sizeof(struct instruction));
-        memcpy(&PREFETCH[1], tr_entry2 , sizeof(struct instruction));
+      else{
+        if(instructions_packed == 1)
+        {
+          PREFETCH[0] = PREFETCH[1];
+          memcpy(&PREFETCH[1], tr_entry, sizeof(struct instruction));
+        }
+        if(instructions_packed == 2)
+        {
+          memcpy(&PREFETCH[0], tr_entry, sizeof(struct instruction));
+          memcpy(&PREFETCH[1], tr_entry2, sizeof(struct instruction));
+        }
       }
 
       //printf("==============================================================================\n");

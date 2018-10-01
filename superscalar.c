@@ -13,6 +13,7 @@
 #include "CPU.h" 
 
 unsigned int check_load_use_hazard(struct instruction *first_instr, struct instruction *x);
+unsigned int check_data_hazard(struct instruction *first_instr, struct instruction *x);
 unsigned int check_control_hazard(struct instruction *first_instr, struct instruction *x);
 void insert_noop(struct instruction *loc);
 void insert_squashed(struct instruction *loc);
@@ -96,7 +97,7 @@ int main(int argc, char **argv)
       {
         PACKING[1] = PREFETCH[0];
         instructions_packed++;
-        if(PREFETCH[1].type == ti_LOAD || PREFETCH[1].type == ti_STORE)
+        if(PREFETCH[1].type == ti_LOAD || PREFETCH[1].type == ti_STORE || check_data_hazard(&PREFETCH[0], &PREFETCH[1]))
         {
           insert_noop(&PACKING[0]);
         }
@@ -117,7 +118,7 @@ int main(int argc, char **argv)
         }
         else
         {
-          if(PREFETCH[1].type == ti_LOAD || PREFETCH[1].type == ti_STORE)
+          if (!check_data_hazard(&PREFETCH[0], &PREFETCH[1]) && (PREFETCH[1].type == ti_LOAD || PREFETCH[1].type == ti_STORE))
           {
             PACKING[1] = PREFETCH[1];
             instructions_packed++;
@@ -130,9 +131,33 @@ int main(int argc, char **argv)
         
       }
 
+      //adjust results for possible load/use hazard
+      if(IF_B.type == ti_LOAD)
+      {
+        //need a complete no-op cycle if first instruction is dependent
+        if (check_load_use_hazard(&IF_B, &PREFETCH[0]) )
+        {
+          insert_noop(&PACKING[0]);
+          insert_noop(&PACKING[1]);
+          instructions_packed = 0;
+        }
+        //no-op the second instruction only if it's the dependent one  
+        else if (instructions_packed == 2 && check_load_use_hazard(&IF_B, &PREFETCH[1]) )
+        {
+          if(PREFETCH[1].type == ti_LOAD || PREFETCH[1].type == ti_STORE)
+            insert_noop(&PACKING[1]);
+          else
+            insert_noop(&PACKING[0]);
+          instructions_packed--;
+        }
+        
+      }
+
       if(!size){    /* if no more instructions in trace, feed NOOPS and reduce flush_counter */
-        insert_noop(&PREFETCH[0]);
-        insert_noop(&PREFETCH[1]);
+        if(instructions_packed > 0)
+          insert_noop(&PREFETCH[0]);
+        if(instructions_packed > 1)
+          insert_noop(&PREFETCH[1]);
         flush_counter--;   
       }
       else{

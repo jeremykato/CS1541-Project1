@@ -12,7 +12,7 @@
 #include <string.h>
 #include "CPU.h" 
 
-unsigned int check_data_hazard(struct instruction *first_instr, struct instruction *x);
+unsigned int check_load_use_hazard(struct instruction *first_instr, struct instruction *x);
 unsigned int check_control_hazard(struct instruction *first_instr, struct instruction *x);
 void insert_noop(struct instruction *loc);
 void insert_squashed(struct instruction *loc);
@@ -61,14 +61,10 @@ int main(int argc, char **argv)
 
   while(1) {
     
-    if(!size)
-      ;
-    else if(instructions_packed > 0)
+    if(size && instructions_packed > 0)
       size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
-    if(!size)
-      ;
-    else if(instructions_packed > 1)
-      size = trace_get_item(&tr_entry2); /* put the instruction into a buffer */
+    if(size && instructions_packed > 1)
+      size = trace_get_item(&tr_entry2); /* put the second instruction into a buffer */
 
     instructions_packed = 0;
    
@@ -91,7 +87,12 @@ int main(int argc, char **argv)
       IF_A = PACKING[0];
       IF_B = PACKING[1];
 
-      if(PREFETCH[0].type == ti_LOAD || PREFETCH[0].type == ti_STORE)
+      if (IF_A.type == ti_JRTYPE || IF_A.type == ti_JTYPE || (IF_A.type == ti_BRANCH && is_branch_taken(&IF_A, &PREFETCH[0])))
+      {
+        insert_squashed(&PACKING[0]);
+        insert_squashed(&PACKING[1]);
+      }
+      else if(PREFETCH[0].type == ti_LOAD || PREFETCH[0].type == ti_STORE)
       {
         PACKING[1] = PREFETCH[0];
         instructions_packed++;
@@ -239,11 +240,27 @@ int main(int argc, char **argv)
   exit(0);
 }
 
-//returns 1 if a data hazard is found, else returns 0
+//returns 1 if a load/use hazard is found, else returns 0
 //x is assumed to be the possibly dependent instruction following the LOAD
-unsigned int check_data_hazard(struct instruction *first_instr, struct instruction *x)
+unsigned int check_load_use_hazard(struct instruction *first_instr, struct instruction *x)
 {
   if(first_instr->type != ti_LOAD)
+    return 0;
+  int hazard_register = first_instr->dReg;
+  if(x->sReg_a == hazard_register && x->type != ti_JTYPE && x->type != ti_SPECIAL && x->type != ti_SQUASHED)
+    return 1;
+  if(x->sReg_b == hazard_register && (x->type == ti_RTYPE || x->type == ti_STORE || x->type == ti_BRANCH))
+    return 1;
+
+  return 0;
+}
+
+//returns 1 if a data hazard is found, else returns 0
+//x should be the other candidate instruction to pack along with first_instr
+unsigned int check_data_hazard(struct instruction *first_instr, struct instruction *x)
+{
+  //we can only have write/read hazard if first instruction writes a register
+  if(first_instr->type != ti_LOAD && first_instr->type != ti_RTYPE && first_instr->type != ti_ITYPE)
     return 0;
   int hazard_register = first_instr->dReg;
   if(x->sReg_a == hazard_register && x->type != ti_JTYPE && x->type != ti_SPECIAL && x->type != ti_SQUASHED)
@@ -271,7 +288,7 @@ void insert_noop(struct instruction *loc)
   *loc = NO_OP;
 }
 
-//puts a NO_OP in the desired location
+//puts a NO_OP which prints in trace as "SQUASHED" in the desired location
 void insert_squashed(struct instruction *loc)
 {
   struct instruction SQUASHED_OP;

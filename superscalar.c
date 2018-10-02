@@ -33,8 +33,7 @@ int main(int argc, char **argv)
   int trace_view_on = 0;
   int prediction_method = 0;
   int instructions_packed = 2;  //to track whether to advance pipe 0, 1 or 2 instructions each cycle
-  int squash_counter = 0;
-  int flush_counter = 6; //5 stage pipeline and 2-part buffer, so we have to move 6 instructions once trace is done
+  int flush_counter = 6; //5 stage pipeline and 2-part buffer, so we have to move 7 instructions once trace is done
   
   int cycle_number = -2;  //start at -2 to ignore filling the PREFETCH QUEUE
 
@@ -88,7 +87,13 @@ int main(int argc, char **argv)
       IF_A = PACKING[0];
       IF_B = PACKING[1];
 
-      if (IF_A.type == ti_JRTYPE || IF_A.type == ti_JTYPE || (IF_A.type == ti_BRANCH && is_branch_taken(&IF_A, &PREFETCH[0])))
+      if(cycle_number < 0)
+      {
+      	memcpy(&PREFETCH[0], tr_entry, sizeof(struct instruction));
+        memcpy(&PREFETCH[1], tr_entry2, sizeof(struct instruction));
+      }
+
+      else if(IF_A.type == ti_JRTYPE || IF_A.type == ti_JTYPE || (IF_A.type == ti_BRANCH && is_branch_taken(&IF_A, &PREFETCH[0])))
       {
         insert_squashed(&PACKING[0]);
         insert_squashed(&PACKING[1]);
@@ -135,7 +140,7 @@ int main(int argc, char **argv)
       if(IF_B.type == ti_LOAD)
       {
         //need a complete no-op cycle if first instruction is dependent
-        if (check_load_use_hazard(&IF_B, &PREFETCH[0]) )
+        if (instructions_packed > 0 && check_load_use_hazard(&IF_B, &PREFETCH[0]) )
         {
           insert_noop(&PACKING[0]);
           insert_noop(&PACKING[1]);
@@ -155,16 +160,20 @@ int main(int argc, char **argv)
 
       if(!size){    /* if no more instructions in trace, feed NOOPS and reduce flush_counter */
         if(instructions_packed > 0)
+        {
+          flush_counter--;
           insert_noop(&PREFETCH[0]);
+         }
         if(instructions_packed > 1)
           insert_noop(&PREFETCH[1]);
-        flush_counter--;   
+           
       }
       else{
         if(instructions_packed == 1)
         {
           PREFETCH[0] = PREFETCH[1];
           memcpy(&PREFETCH[1], tr_entry, sizeof(struct instruction));
+          tr_entry = tr_entry2;
         }
         if(instructions_packed == 2)
         {

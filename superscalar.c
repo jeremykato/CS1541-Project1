@@ -1,5 +1,8 @@
 /**************************************************************/
-/* CS/COE 1541				 			
+/* CS/COE 1541
+   Project 1 Superscalar Pipeline Simulator
+   Collaborators: Zachary Whitney, Albert Yang, Jeremy Kato
+   IDS: zdw9, aly31, jdk81					 			
    compile with gcc -o pipeline five_stage.c			
    and execute using							
    ./pipeline  /afs/cs.pitt.edu/courses/1541/short_traces/sample.tr	0  
@@ -18,9 +21,11 @@ unsigned int check_control_hazard(struct instruction *first_instr, struct instru
 void insert_noop(struct instruction *loc);
 void insert_squashed(struct instruction *loc);
 unsigned int is_branch_taken(struct instruction *branch_instr, struct instruction *next_instr);
+void printtrace(struct instruction *instr);
 
 struct instruction PACKING[2];
 struct instruction PREFETCH[2];
+int cycle_number = -2;  //start at -2 to ignore filling the PREFETCH QUEUE
 
 int main(int argc, char **argv)
 {
@@ -34,8 +39,6 @@ int main(int argc, char **argv)
   int prediction_method = 0;
   int instructions_packed = 2;  //to track whether to advance pipe 0, 1 or 2 instructions each cycle
   int flush_counter = 6; //5 stage pipeline and 2-part buffer, so we have to move 7 instructions once trace is done
-  
-  int cycle_number = -2;  //start at -2 to ignore filling the PREFETCH QUEUE
 
   if (argc == 1) {
     fprintf(stdout, "\nUSAGE: tv <trace_file> <prediction method> <switch - any character> \n");
@@ -59,13 +62,12 @@ int main(int argc, char **argv)
 
   trace_init();
 
+  size = trace_get_item(&tr_entry); 
+  if(size)
+  	size = trace_get_item(&tr_entry2);
+
   while(1) {
     
-    if(size && instructions_packed > 0)
-      size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
-    if(size && instructions_packed > 1)
-      size = trace_get_item(&tr_entry2); /* put the second instruction into a buffer */
-
     instructions_packed = 0;
    
     if (!size && flush_counter==0) {       /* no more instructions (instructions) to simulate */
@@ -90,9 +92,8 @@ int main(int argc, char **argv)
       if(cycle_number < 0)
       {
       	memcpy(&PREFETCH[0], tr_entry, sizeof(struct instruction));
-        memcpy(&PREFETCH[1], tr_entry2, sizeof(struct instruction));
+       	memcpy(&PREFETCH[1], tr_entry2, sizeof(struct instruction));
       }
-
       else if(IF_A.type == ti_JRTYPE || IF_A.type == ti_JTYPE || (IF_A.type == ti_BRANCH && is_branch_taken(&IF_A, &PREFETCH[0])))
       {
         insert_squashed(&PACKING[0]);
@@ -158,6 +159,11 @@ int main(int argc, char **argv)
         
       }
 
+      if(size && instructions_packed > 0)
+      	size = trace_get_item(&tr_entry); /* put the instruction into a buffer */
+      if(size && instructions_packed > 1)
+        size = trace_get_item(&tr_entry2); /* put the second instruction into a buffer */
+
       if(!size){    /* if no more instructions in trace, feed NOOPS and reduce flush_counter */
         if(instructions_packed > 0)
         {
@@ -173,7 +179,6 @@ int main(int argc, char **argv)
         {
           PREFETCH[0] = PREFETCH[1];
           memcpy(&PREFETCH[1], tr_entry, sizeof(struct instruction));
-          tr_entry = tr_entry2;
         }
         if(instructions_packed == 2)
         {
@@ -183,15 +188,15 @@ int main(int argc, char **argv)
       }
 
       //printf("==============================================================================\n");
-    }  
+    }   
 
-
-    if (trace_view_on && cycle_number>=5) {/* print the executed instruction if trace_view_on=1 */
+    if (trace_view_on && cycle_number>=5) {
+	
       switch(WB_A.type) {
         case ti_NOP:
           printf("[cycle %d] NOP:\n",cycle_number) ;
           break;
-        case ti_RTYPE: /* registers are translated for printing by subtracting offset  */
+        case ti_RTYPE: 
           printf("[cycle %d] RTYPE:",cycle_number) ;
           printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(dReg: %d) \n", WB_A.PC, WB_A.sReg_a, WB_A.sReg_b, WB_A.dReg);
           break;
@@ -225,13 +230,14 @@ int main(int argc, char **argv)
         case ti_SQUASHED:
           printf("[cycle %d] SQUASHED\n",cycle_number) ;
           break;
+		
       }
-
+	
       switch(WB_B.type) {
         case ti_NOP:
           printf("[cycle %d] NOP:\n",cycle_number) ;
           break;
-        case ti_RTYPE: /* registers are translated for printing by subtracting offset  */
+        case ti_RTYPE:
           printf("[cycle %d] RTYPE:",cycle_number) ;
           printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(dReg: %d) \n", WB_B.PC, WB_B.sReg_a, WB_B.sReg_b, WB_B.dReg);
           break;
@@ -265,8 +271,10 @@ int main(int argc, char **argv)
         case ti_SQUASHED:
           printf("[cycle %d] SQUASHED\n",cycle_number) ;
           break;
+
       }
     }
+    
   }
 
   trace_uninit();
@@ -335,4 +343,48 @@ void insert_squashed(struct instruction *loc)
 unsigned int is_branch_taken(struct instruction *branch_instr, struct instruction *next_instr)
 {
   return (branch_instr->PC != next_instr->PC - 4);
+}
+
+void printtrace(struct instruction *instr)
+{
+	struct instruction W = *instr;
+	switch(W.type) {
+        case ti_NOP:
+          printf("[cycle %d] NOP:\n",cycle_number) ;
+          break;
+        case ti_RTYPE: /* registers are translated for printing by subtracting offset  */
+          printf("[cycle %d] RTYPE:",cycle_number) ;
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(dReg: %d) \n", W.PC, W.sReg_a, W.sReg_b, W.dReg);
+          break;
+        case ti_ITYPE:
+          printf("[cycle %d] ITYPE:",cycle_number) ;
+          printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", W.PC, W.sReg_a, W.dReg, W.Addr);
+          break;
+        case ti_LOAD:
+          printf("[cycle %d] LOAD:",cycle_number) ;      
+          printf(" (PC: %d)(sReg_a: %d)(dReg: %d)(addr: %d)\n", W.PC, W.sReg_a, W.dReg, W.Addr);
+          break;
+        case ti_STORE:
+          printf("[cycle %d] STORE:",cycle_number) ;      
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", W.PC, W.sReg_a, W.sReg_b, W.Addr);
+          break;
+        case ti_BRANCH:
+          printf("[cycle %d] BRANCH:",cycle_number) ;
+          printf(" (PC: %d)(sReg_a: %d)(sReg_b: %d)(addr: %d)\n", W.PC, W.sReg_a, W.sReg_b, W.Addr);
+          break;
+        case ti_JTYPE:
+          printf("[cycle %d] JTYPE:",cycle_number) ;
+          printf(" (PC: %d)(addr: %d)\n", W.PC, W.Addr);
+          break;
+        case ti_SPECIAL:
+          printf("[cycle %d] SPECIAL:\n",cycle_number) ;        
+          break;
+        case ti_JRTYPE:
+          printf("[cycle %d] JRTYPE:",cycle_number) ;
+          printf(" (PC: %d) (sReg_a: %d)(addr: %d)\n", W.PC, W.dReg, W.Addr);
+          break;
+        case ti_SQUASHED:
+          printf("[cycle %d] SQUASHED\n",cycle_number) ;
+          break;
+	}
 }

@@ -1,5 +1,8 @@
 /**************************************************************/
 /* CS/COE 1541				 			
+   Project 1 5-Stage Pipeline Simulator
+   Collaborators: Zachary Whitney, Albert Yang, Jeremy Kato
+   IDS: zdw9, aly31, jdk81
    compile with gcc -o pipeline five_stage.c			
    and execute using							
    ./pipeline  /afs/cs.pitt.edu/courses/1541/short_traces/sample.tr	0  
@@ -71,7 +74,7 @@ int main(int argc, char **argv)
     if(prediction_method == 1 && PREFETCH[0].type == ti_BRANCH)
     {
       int branch_result = is_branch_taken(&PREFETCH[0], &PREFETCH[1]);
-      if (get_prediction(&PREFETCH[0]) != branch_result || !is_right_target(&PREFETCH[0]))
+      if (get_prediction(&PREFETCH[0]) != branch_result || (branch_result == TAKEN && !is_right_target(&PREFETCH[0])))
         squash_counter++;
       update_prediction(&PREFETCH[0], branch_result);
     }
@@ -185,6 +188,7 @@ unsigned char is_right_target(struct instruction *instr)
   return instr->Addr == p.target;
 }
 
+//updates the BTB for given instruction
 void update_prediction(struct instruction *instr, unsigned char new_prediction)
 {
   int index = HASH(instr->PC);

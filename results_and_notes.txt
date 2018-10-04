@@ -1,49 +1,49 @@
-﻿------FIVE STAGE COUNTS: TEAM zacalbertjeremy -----
+------FIVE STAGE COUNTS: TEAM zacalbertjeremy -----
 --------------SAMPLE TRACE-------------------
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample.tr
 + Simulation terminates at cycle : 1156
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample.tr
-+ Simulation terminates at cycle : 1189
++ Simulation terminates at cycle : 1150
 --------------LONG TRACES-------------------
 
  ** opening file /afs/cs.pitt.edu/courses/1541/long_traces/sample_large1.tr
 + Simulation terminates at cycle : 112886972
 
  ** opening file /afs/cs.pitt.edu/courses/1541/long_traces/sample_large1.tr
-+ Simulation terminates at cycle : 104756594
++ Simulation terminates at cycle : 104751986
 
  ** opening file /afs/cs.pitt.edu/courses/1541/long_traces/sample_large2.tr
 + Simulation terminates at cycle : 125422888
 
  ** opening file /afs/cs.pitt.edu/courses/1541/long_traces/sample_large2.tr
-+ Simulation terminates at cycle : 123929512
++ Simulation terminates at cycle : 117509911
 --------------SHORT TRACES-------------------
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample1.tr
 + Simulation terminates at cycle : 1267766
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample1.tr
-+ Simulation terminates at cycle : 1130253
++ Simulation terminates at cycle : 1129674
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample2.tr
 + Simulation terminates at cycle : 1215048
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample2.tr
-+ Simulation terminates at cycle : 1250113
++ Simulation terminates at cycle : 1224391
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample3.tr
 + Simulation terminates at cycle : 1351474
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample3.tr
-+ Simulation terminates at cycle : 1365608
++ Simulation terminates at cycle : 1293841
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample4.tr
 + Simulation terminates at cycle : 3834281
 
  ** opening file /afs/cs.pitt.edu/courses/1541/short_traces/sample4.tr
-+ Simulation terminates at cycle : 3745966
++ Simulation terminates at cycle : 3647921
 
 
 ------SUPERSCALAR COUNTS: TEAM zacalbertjeremy -----

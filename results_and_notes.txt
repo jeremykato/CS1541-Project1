@@ -135,7 +135,13 @@ Analysis:
 
         In each of the files, with the exception of sample and sample2, branch prediction was able to cut down on the number of cycles executed by a solid amount. The difference that branch prediction made is much more clear in the second table - in all traces except for sample and sample2, branch prediction made massive improvements in the number of no-op instructions that had to be inserted into the pipeline, with sample1 reducing over 80% of the total squashed instructions. Especially in the traces that contained a significantly higher ratio of branches to total instructions, branch prediction made a massive difference in the correspondding cycle performance as well. Sample1 as sample_large1's numerous branch instructions meant that branch prediction's impact was much larger when it could prevent opportunities for stalling that the original pipeline would otherwise encounter.
 
+        In the case of sample2, where the performance degraded instead of improving, there are two scenarios that could lead to worse perfomance than predicting not-taken, the second being the most likely:
         
+                1) The branch prediction for a given branch repeatedly got given branches wrong - however, unless the branch alternated between taken & taken and not taken & not taken, this is unlikely.
+                2) When hashing the address of the branch, collisions occurred, causing the hash table to frequently predict results incorrectly, which is especially likely if a collision exists, and the colliding addresses's typical result is the opposite of one another.
+        
+        It's possible that sample2 had one or more instances where branch values collided with one another and repeatedly overwrote one another's prediction, causing the table to consistently predict the wrong value. This could likely be prevented with either a larger hash table that would reduce the possibility of this occurring.
+
 
         Superscalar Performance Analysis
 
